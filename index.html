@@ -52,9 +52,8 @@
     border: 1px solid #1e2a4a;
     border-radius: 8px;
     box-shadow: 0 0 30px rgba(0, 240, 255, .12), inset 0 0 40px rgba(0,0,0,.5);
-    max-width: 100%;
-    max-height: calc(100vh - 110px);
     cursor: none;
+    touch-action: none;
   }
   #overlay {
     position: fixed;
@@ -132,6 +131,7 @@
 <div id="overlay">
   <h1>NEON BREAKER</h1>
   <p class="big" id="ovTitle">Smash the glowing grid. 5 levels. 3 lives.</p>
+  <p id="ovKeys">Mouse / touch / &larr; &rarr; to move &middot; click or tap to launch</p>
   <p id="ovText">Move the paddle with your mouse, finger, or arrow keys. Don't let the ball fall. Each level gets faster and meaner.</p>
   <div class="score-line" id="ovScore"></div>
   <button id="ovBtn">Start</button>
@@ -157,9 +157,48 @@
   var DPR = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = W * DPR;
   canvas.height = H * DPR;
-  canvas.style.width = W + "px";
-  canvas.style.height = H + "px";
   ctx.scale(DPR, DPR);
+  function fitCanvas() {
+    var availW = window.innerWidth - 24;
+    var availH = window.innerHeight - 130;
+    var s = Math.min(availW / W, availH / H);
+    if (s > 1.4) s = 1.4;
+    if (s < 0.4) s = 0.4;
+    canvas.style.width = Math.floor(W * s) + "px";
+    canvas.style.height = Math.floor(H * s) + "px";
+  }
+  fitCanvas();
+  window.addEventListener("resize", fitCanvas);
+
+  // ---------- WebAudio sound cues (no audio files) ----------
+  var actx = null;
+  function audio() {
+    if (!actx) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; }
+    }
+    if (actx && actx.state === "suspended") actx.resume();
+    return actx;
+  }
+  function beep(freq, dur, type, vol, when) {
+    var a = audio();
+    if (!a) return;
+    try {
+      var t0 = a.currentTime + (when || 0);
+      var o = a.createOscillator();
+      var g = a.createGain();
+      o.type = type || "square";
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.06, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(a.destination);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    } catch (e) {}
+  }
+  function sfxBrick() { beep(520, 0.08, "square", 0.05); beep(780, 0.06, "square", 0.03, 0.02); }
+  function sfxPaddle() { beep(220, 0.06, "triangle", 0.05); }
+  function sfxLose() { beep(160, 0.25, "sawtooth", 0.06); beep(110, 0.3, "sawtooth", 0.05, 0.08); }
+  function sfxLevel() { beep(523, 0.09, "square", 0.05); beep(659, 0.09, "square", 0.05, 0.09); beep(784, 0.12, "square", 0.05, 0.18); }
+  function sfxStart() { beep(440, 0.08, "square", 0.05); beep(660, 0.1, "square", 0.05, 0.08); }
 
   var BEST_KEY = "neonBreakerBest";
   var best = 0;
@@ -318,11 +357,13 @@
     updateHud();
     hideOverlay();
     state = "playing";
+    sfxStart();
   }
 
   function nextLevel() {
     level++;
     if (level > TOTAL_LEVELS) {
+      sfxLevel();
       state = "win";
       saveBest();
       showOverlay("GRID CLEARED", "You broke all 5 levels. The neon never dims.", "Play Again", "Final score: " + score + "  ·  Best: " + best);
@@ -337,6 +378,7 @@
     lives--;
     shake = 14;
     flash = 1;
+    sfxLose();
     updateHud();
     if (lives <= 0) {
       state = "gameover";
@@ -429,6 +471,14 @@
     }
   });
 
+  // Auto-pause when the tab is hidden
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden && state === "playing") {
+      state = "paused";
+      showOverlay("PAUSED", "Tab hidden — game paused. Resume when you're back.", "Resume", "Score: " + score);
+    }
+  });
+
   // ---------- Update ----------
   function update(dt) {
     if (state !== "playing") return;
@@ -469,6 +519,7 @@
         ball.vx = Math.sin(ang) * ball.speed;
         ball.vy = -Math.cos(ang) * ball.speed;
         ball.y = paddle.y - ball.r;
+        sfxPaddle();
       }
 
       // Bricks
@@ -493,9 +544,11 @@
           score += 10 * b.maxHp;
           spawnParticles(ball.x, ball.y, b.color, 14);
           shake = Math.max(shake, 5);
+          sfxBrick();
         } else {
           score += 5;
           spawnParticles(ball.x, ball.y, b.color, 6);
+          sfxBrick();
         }
         updateHud();
         break;
@@ -634,7 +687,7 @@
   updateHud();
   showOverlay(
     "NEON BREAKER",
-    "Smash the glowing grid. 5 levels. 3 lives. Move with mouse, touch, or arrow keys. Launch with a click or tap. P pauses, R restarts.",
+    "Move the paddle with mouse, touch, or arrow keys. Tap or click to launch. Smash every brick across 5 levels — 3 lives. P pauses, R restarts.",
     "Start",
     best > 0 ? "Best: " + best : ""
   );
